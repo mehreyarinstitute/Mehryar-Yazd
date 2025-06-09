@@ -4,10 +4,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 import threading
 
-# توکن ربات از متغیر محیطی
+# دریافت توکن از متغیر محیطی
 TOKEN = os.environ["TOKEN"]
 
-# ایجاد سرور Flask برای جلوگیری از خوابیدن سرویس
+# راه‌اندازی Flask
 app = Flask(__name__)
 
 @app.route('/')
@@ -18,7 +18,7 @@ def home():
 def ping():
     return "pong"
 
-# فرمان /start برای ارسال دکمه‌ها
+# دکمه‌های شیشه‌ای
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("پایتون", callback_data='python'),
@@ -32,30 +32,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("سلام! یکی از گزینه‌ها را انتخاب کن:", reply_markup=reply_markup)
 
-# پاسخ به کلیک روی دکمه‌ها
+# هندل کردن کلیک روی دکمه‌ها و ارسال عکس مربوطه
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = {
-        'python': "🔧 آموزش پایتون",
-        'ai': "🤖 هوش مصنوعی جذابه!",
-        'language': "🗣 یادگیری زبان خیلی مهمه",
-        'resin': "🎨 رزین یک هنر زیباست",
-        'crypto': "💰 دنیای ارز دیجیتال پرهیجانه!",
-        'painting': "🖌 نقاشی یعنی خلاقیت",
-        'computer': "🖥 دنیای کامپیوتر بی‌پایانه"
-    }
-    await query.edit_message_text(data.get(query.data, "گزینه‌ای ناشناس انتخاب شد."))
 
-# راه‌اندازی ربات
+    # نگاشت نام دکمه به نام فایل عکس
+    image_map = {
+        'python': 'python.jpg',
+        'ai': 'ai.jpg',
+        'language': 'language.jpg',
+        'resin': 'resin.jpg',
+        'crypto': 'crypto.jpg',
+        'painting': 'painting.jpg',
+        'computer': 'computer.jpg',
+    }
+
+    image_file = image_map.get(query.data)
+
+    if image_file and os.path.exists(image_file):
+        with open(image_file, 'rb') as photo:
+            await context.bot.send_photo(chat_id=query.message.chat.id, photo=photo)
+    else:
+        await query.edit_message_text("تصویر مربوطه پیدا نشد یا هنوز بارگذاری نشده است.")
+
+# اجرای ربات
 def run_bot():
     app_telegram = ApplicationBuilder().token(TOKEN).build()
     app_telegram.add_handler(CommandHandler("start", start))
     app_telegram.add_handler(CallbackQueryHandler(button_handler))
-    print("🤖 ربات در حال اجراست...")
+    print("ربات در حال اجراست...")
     app_telegram.run_polling()
 
-# اجرای همزمان Flask و ربات
+# اجرای همزمان ربات و Flask
 if __name__ == '__main__':
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=8000)).start()
     run_bot()
