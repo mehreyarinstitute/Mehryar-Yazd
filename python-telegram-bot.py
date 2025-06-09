@@ -2,6 +2,8 @@ from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboard
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
 import pandas as pd
 import os
+from flask import Flask, request
+import logging
 
 ADMINS = [6441736006]
 GROUP_CHAT_ID = -1002737227310
@@ -68,7 +70,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         global users_data
         if not any(users_data['user_id'] == user_id):
-            users_data = pd.concat([users_data, pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone"])], ignore_index=True)
+            users_data = pd.concat([users_data, pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone")]], ignore_index=True)
 
             file_path = "users.xlsx"
             users_data.to_excel(file_path, index=False)
@@ -101,15 +103,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await context.bot.send_message(chat_id=query.message.chat.id, text="دپارتمان پیدا نشد ❌")
 
+# webhook-style deployment for render
+logging.basicConfig(level=logging.INFO)
+TOKEN = os.environ.get("BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 8443))
+app = Flask(__name__)
+application = ApplicationBuilder().token(TOKEN).build()
+
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+application.add_handler(CallbackQueryHandler(handle_callback))
+
+@app.route(f"/{TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)
+    return "ok"
+
+@app.route("/")
+def index():
+    return "Bot is running via webhook."
+
 if __name__ == '__main__':
-    import logging
-    logging.basicConfig(level=logging.INFO)
-
-    TOKEN = os.environ.get("BOT_TOKEN")
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-
-    app.run_polling()
+    application.bot.set_webhook(url=os.environ.get("RENDER_EXTERNAL_URL") + f"/{TOKEN}")
+    app.run(host='0.0.0.0", port=PORT)
