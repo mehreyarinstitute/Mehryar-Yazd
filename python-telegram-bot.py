@@ -1,9 +1,9 @@
 # bot.py
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
 
-TOKEN = "توکن خودت را اینجا بگذار"
-
+TOKEN = os.getenv("BOT_TOKEN")
 async def start(update: Update, context: CallbackContext.DEFAULT_TYPE):
     keyboard = [
         [
