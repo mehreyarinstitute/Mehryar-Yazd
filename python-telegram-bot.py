@@ -1,18 +1,12 @@
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
 import pandas as pd
 import os
 
-# لیست ادمین‌ها (آیدی عددی تلگرام)
 ADMINS = [6441736006]
-
-# آیدی عددی گروه تلگرام
 GROUP_CHAT_ID = -1002737227310
-
-# دیتافریم برای ذخیره شماره‌ها
 users_data = pd.DataFrame(columns=["user_id", "username", "phone"])
 
-# دپارتمان‌ها و توضیحات
 departments = {
     "هنر و رسانه": {
         "description": "در این دپارتمان با تکنیک‌های هنری و رسانه‌ای آشنا خواهید شد. 📸🎨",
@@ -46,11 +40,8 @@ departments = {
     }
 }
 
-
 def get_main_menu():
-    keyboard = [
-        [InlineKeyboardButton(text=title, callback_data=title)] for title in departments.keys()
-    ]
+    keyboard = [[InlineKeyboardButton(text=title, callback_data=title)] for title in departments.keys()]
     return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -77,44 +68,44 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         global users_data
         if not any(users_data['user_id'] == user_id):
-            users_data = pd.concat([
-                users_data,
-                pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone"])
-            ], ignore_index=True)
+            users_data = pd.concat([users_data, pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone"])], ignore_index=True)
 
-            # ذخیره در فایل Excel
             file_path = "users.xlsx"
             users_data.to_excel(file_path, index=False)
 
-            # ارسال فایل به گروه
             await context.bot.send_document(chat_id=GROUP_CHAT_ID, document=open(file_path, 'rb'))
+            await context.bot.send_message(chat_id=GROUP_CHAT_ID, text=f"کاربر جدید ثبت شد ✅\nنام کاربری: @{username}\nشماره: {phone}")
 
-            # ارسال پیام مشخصات به گروه
-            await context.bot.send_message(chat_id=GROUP_CHAT_ID,
-                                           text=f"کاربر جدید ثبت شد ✅\nنام کاربری: @{username}\nشماره: {phone}")
-
-    await context.bot.send_message(chat_id=update.effective_chat.id,
-                                   text="از دکمه‌های زیر یکی را انتخاب کنید:",
-                                   reply_markup=get_main_menu())
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="از دکمه‌های زیر یکی را انتخاب کنید:", reply_markup=get_main_menu())
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     dept_name = query.data
-    description = departments.get(dept_name, "اطلاعاتی یافت نشد")
+    dept_info = departments.get(dept_name)
 
-    await context.bot.send_message(chat_id=query.message.chat.id,
-                                   text=f"{dept_name}\n\n{description}\n\n☎️ شماره موسسه: 03538211100")
+    if dept_info:
+        description = dept_info["description"]
+        image_path = dept_info["image"]
+        phone = dept_info["phone"]
+
+        if os.path.exists(image_path):
+            with open(image_path, 'rb') as img:
+                await context.bot.send_photo(chat_id=query.message.chat.id, photo=img)
+
+        await context.bot.send_message(
+            chat_id=query.message.chat.id,
+            text=f"{dept_name}\n\n{description}\n\n☎️ شماره موسسه: {phone}"
+        )
+    else:
+        await context.bot.send_message(chat_id=query.message.chat.id, text="دپارتمان پیدا نشد ❌")
 
 if __name__ == '__main__':
     import logging
-    from telegram.ext import CallbackQueryHandler
-
     logging.basicConfig(level=logging.INFO)
 
-    TOKEN = os.environ.get("BOT_TOKEN")  # توکن بات رو از متغیر محیطی بگیر
-
+    TOKEN = os.environ.get("BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
