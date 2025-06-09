@@ -1,121 +1,114 @@
 import os
-import threading
+import pandas as pd
 from flask import Flask
-from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
-                      KeyboardButton, ReplyKeyboardMarkup, Contact)
-from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
-                          CallbackQueryHandler, ContextTypes, filters)
-from openpyxl import Workbook, load_workbook
+from telegram import (
+    Update, KeyboardButton, ReplyKeyboardMarkup,
+    InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+)
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
+import threading
 
 TOKEN = os.environ["TOKEN"]
-EXCEL_FILE = "contacts.xlsx"
-GROUP_CHAT_ID = -1002059821624  # آی‌دی عددی گروه ادمین (از t.me لینک استخراج شده)
+ADMIN_IDS = [6441736006, 364551688]
+GROUP_CHAT_ID = -1002095809427  # آی‌دی عددی گروه تلگرامی که لینک آن: https://t.me/+RFX8AaqzT_5jMDA0
 
-# دپارتمان‌ها
-DEPARTMENTS = {
-    "art": ("🎨 هنر و رسانه", "art_media.png", "دپارتمان هنر و رسانه ارائه‌دهنده آموزش‌های تخصصی در زمینه‌های هنری، گرافیک، عکاسی و رسانه است."),
-    "computer": ("💻 کامپیوتر", "computer.png", "در دپارتمان کامپیوتر، مهارت‌های برنامه‌نویسی، طراحی سایت، امنیت و شبکه آموزش داده می‌شود."),
-    "economy": ("💰 اقتصاد و کوچینگ", "economy_coaching.png", "این دپارتمان شامل آموزش‌هایی در زمینه اقتصاد، بورس، کسب‌وکار و کوچینگ فردی است."),
-    "law": ("⚖️ حقوق و وکالت", "law_justice.png", "در دپارتمان حقوق، مطالب مرتبط با وکالت، قوانین و حقوق عمومی تدریس می‌شود."),
-    "science": ("🔬 علمی آزاد", "science_free.png", "دپارتمان علمی آزاد برای علاقه‌مندان به رشته‌های عمومی و دروس آزاد طراحی شده است."),
-    "languages": ("🌐 زبان‌های خارجی", "languages.png", "در این دپارتمان، زبان‌های انگلیسی، آلمانی، فرانسوی و سایر زبان‌های زنده دنیا تدریس می‌شود.")
-}
-
+user_data_file = "user_data.xlsx"
 app = Flask(__name__)
+registered_users = {}
+
+if os.path.exists(user_data_file):
+    df = pd.read_excel(user_data_file)
+    registered_users = {int(row["user_id"]): row["phone"] for _, row in df.iterrows()}
 
 @app.route('/ping')
 def ping():
     return 'pong'
 
-def contact_exists(user_id):
-    if not os.path.exists(EXCEL_FILE):
-        return False
-    wb = load_workbook(EXCEL_FILE)
-    ws = wb.active
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[1] == user_id:
-            return True
-    return False
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    if contact_exists(user.id):
-        await update.message.reply_text("✅ شماره شما قبلاً ثبت شده است.")
-        await show_departments(update, context)
-        return
+    user_id = update.message.from_user.id
 
-    contact_button = ReplyKeyboardMarkup(
-        [[KeyboardButton("📱 ارسال شماره من", request_contact=True)]],
-        resize_keyboard=True, one_time_keyboard=True
-    )
-    await update.message.reply_text("برای ادامه، لطفاً شماره تماس خود را ارسال کنید:", reply_markup=contact_button)
+    if user_id in registered_users:
+        await send_departments_menu(update, context)
+    else:
+        keyboard = [[KeyboardButton("ارسال شماره ☎️", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        await update.message.reply_text("لطفاً شماره موبایل خود را ارسال کنید:", reply_markup=reply_markup)
 
 async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    contact: Contact = update.message.contact
+    contact = update.message.contact
     user = update.message.from_user
 
-    if contact_exists(user.id):
-        await update.message.reply_text("✅ شماره شما قبلاً ثبت شده است.")
-        await show_departments(update, context)
+    if user.id in registered_users:
         return
 
-    if os.path.exists(EXCEL_FILE):
-        wb = load_workbook(EXCEL_FILE)
-        ws = wb.active
-    else:
-        wb = Workbook()
-        ws = wb.active
-        ws.append(["نام", "آی‌دی عددی", "یوزرنیم", "شماره تماس"])
+    phone = contact.phone_number
+    registered_users[user.id] = phone
 
-    ws.append([
-        f"{user.first_name} {user.last_name or ''}",
-        user.id,
-        user.username or "ندارد",
-        contact.phone_number
-    ])
-    wb.save(EXCEL_FILE)
+    # Save to Excel
+    df = pd.DataFrame([{
+        "user_id": user.id,
+        "username": user.username or "",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "phone": phone
+    }])
+    if os.path.exists(user_data_file):
+        old_df = pd.read_excel(user_data_file)
+        df = pd.concat([old_df, df], ignore_index=True)
+    df.to_excel(user_data_file, index=False)
 
-    info = (
-        f"📥 ثبت شماره جدید:
-"
-        f"👤 {user.first_name} {user.last_name or ''}\n🆔 {user.id}\n"
-        f"🔗 @{user.username if user.username else 'ندارد'}\n"
-        f"📞 {contact.phone_number}"
-    )
+    # Send info to admin group
+    info = f"🆕 کاربر جدید:\n👤 {user.full_name}\n📞 {phone}\n🔗 @{user.username or 'ندارد'}"
     await context.bot.send_message(chat_id=GROUP_CHAT_ID, text=info)
-    await context.bot.send_document(chat_id=GROUP_CHAT_ID, document=open(EXCEL_FILE, "rb"))
-    await update.message.reply_text("✅ شماره شما با موفقیت ثبت شد.")
-    await show_departments(update, context)
 
-async def show_departments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Send Excel file
+    await context.bot.send_document(chat_id=GROUP_CHAT_ID, document=open(user_data_file, "rb"))
+
+    await update.message.reply_text("✅ شماره شما ثبت شد.", reply_markup=ReplyKeyboardRemove())
+    await send_departments_menu(update, context)
+
+async def send_departments_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton(title, callback_data=key)]
-        for key, (title, _, _) in DEPARTMENTS.items()
+        [InlineKeyboardButton("🎨 هنر و رسانه", callback_data="art_media")],
+        [InlineKeyboardButton("💻 کامپیوتر", callback_data="computer")],
+        [InlineKeyboardButton("💰 اقتصاد و کوچینگ", callback_data="economy_coaching")],
+        [InlineKeyboardButton("⚖️ حقوق و وکالت", callback_data="law_justice")],
+        [InlineKeyboardButton("🔬 علمی آزاد", callback_data="science_free")],
+        [InlineKeyboardButton("🌍 زبان‌های خارجی", callback_data="languages")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("لطفاً دپارتمان مورد نظر را انتخاب کنید:", reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=update.message.chat_id, text="دپارتمان مورد نظر را انتخاب کنید:", reply_markup=reply_markup)
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    key = query.data
-    if key in DEPARTMENTS:
-        title, image_path, caption = DEPARTMENTS[key]
-        if os.path.exists(image_path):
-            with open(image_path, 'rb') as photo:
-                await context.bot.send_photo(chat_id=query.message.chat.id, photo=photo, caption=f"{caption}\n\n📞 تماس با ما: 03538211100")
-        else:
-            await query.message.reply_text("متاسفانه تصویر مربوطه یافت نشد.")
+    department = query.data
+    captions = {
+        "art_media": "🎨 دپارتمان هنر و رسانه\nآموزش‌های تخصصی در زمینه هنرهای تجسمی، طراحی، تدوین و رسانه\n📞 تماس: 03538211100",
+        "computer": "💻 دپارتمان کامپیوتر\nبرنامه‌نویسی، شبکه، امنیت و آموزش نرم‌افزارهای کاربردی\n📞 تماس: 03538211100",
+        "economy_coaching": "💰 دپارتمان اقتصاد و کوچینگ\nآموزش‌های اقتصادی، رشد مالی و مهارت‌های مربی‌گری فردی و سازمانی\n📞 تماس: 03538211100",
+        "law_justice": "⚖️ دپارتمان حقوق و وکالت\nدروس حقوقی، آمادگی آزمون و آموزش‌های تخصصی در زمینه قوانین\n📞 تماس: 03538211100",
+        "science_free": "🔬 دپارتمان علمی آزاد\nآموزش‌های متفرقه و عمومی برای رشد علمی در رشته‌های مختلف\n📞 تماس: 03538211100",
+        "languages": "🌍 دپارتمان زبان‌های خارجی\nآموزش زبان‌های انگلیسی، فرانسه، آلمانی و غیره\n📞 تماس: 03538211100"
+    }
+    image_path = f"{department}.png"
+
+    if os.path.exists(image_path):
+        await context.bot.send_photo(chat_id=query.message.chat_id, photo=open(image_path, "rb"), caption=captions[department])
+    else:
+        await context.bot.send_message(chat_id=query.message.chat_id, text="عکس مربوطه یافت نشد.")
 
 def run_bot():
-    app_telegram = ApplicationBuilder().token(TOKEN).build()
-    app_telegram.add_handler(CommandHandler("start", start))
-    app_telegram.add_handler(MessageHandler(filters.CONTACT, contact_handler))
-    app_telegram.add_handler(CallbackQueryHandler(button_handler))
-    print("ربات در حال اجراست...")
-    app_telegram.run_polling()
+    application = ApplicationBuilder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_buttons))
+    application.add_handler(MessageHandler(filters.CONTACT, contact_handler))
+    print("ربات اجرا شد...")
+    application.run_polling()
 
 if __name__ == "__main__":
-    PORT = int(os.environ.get("PORT", 8000))
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=PORT)).start()
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=8000)).start()
     run_bot()
