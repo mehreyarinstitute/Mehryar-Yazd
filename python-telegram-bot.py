@@ -70,7 +70,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         global users_data
         if not any(users_data['user_id'] == user_id):
-            users_data = pd.concat([users_data, pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone")]], ignore_index=True)
+            users_data = pd.concat([users_data, pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone"]], ignore_index=True)
 
             file_path = "users.xlsx"
             users_data.to_excel(file_path, index=False)
