@@ -1,98 +1,99 @@
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import pandas as pd
 import os
-import threading
-from flask import Flask
-from telegram import (
-    Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
-    InlineKeyboardButton, InlineKeyboardMarkup
-)
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
-)
 
-TOKEN = os.environ["TOKEN"]
-GROUP_CHAT_ID = -100xxxxxxxxxx  # <-- حتماً این عدد را با آیدی عددی گروه جایگزین کن!
-app = Flask(__name__)
+# لیست ادمین‌ها (آیدی عددی تلگرام)
+ADMINS = [6441736006]
 
-@app.route('/ping')
-def ping():
-    return 'pong'
+# آیدی عددی گروه تلگرام
+GROUP_CHAT_ID = -1002737227310
 
-# تعریف دکمه‌های دپارتمان
-DEPARTMENTS = {
-    "art": ("🎨 هنر و رسانه", "art_media.jpg", "آموزش گرافیک، رسانه و هنرهای تجسمی"),
-    "computer": ("💻 کامپیوتر", "computer.jpg", "برنامه‌نویسی، شبکه، امنیت"),
-    "economy": ("💰 اقتصاد و کوچینگ", "economy_coaching.jpg", "اقتصاد، بورس، کوچینگ"),
-    "law": ("⚖️ حقوق و وکالت", "law_justice.jpg", "آموزش قوانین و آمادگی وکالت"),
-    "science": ("🔬 علمی آزاد", "science_free.jpg", "دوره‌های عمومی و روش تحقیق"),
-    "languages": ("🌍 زبان‌های خارجی", "languages.jpg", "انگلیسی، آلمانی، فرانسوی و..."),
+# دیتافریم برای ذخیره شماره‌ها
+users_data = pd.DataFrame(columns=["user_id", "username", "phone"])
+
+# دپارتمان‌ها و توضیحات
+departments = {
+    "هنر و رسانه": "در این دپارتمان با تکنیک‌های هنری و رسانه‌ای آشنا خواهید شد. 📸🎨",
+    "کامپیوتر": "دپارتمان کامپیوتر شامل آموزش برنامه‌نویسی، شبکه و فناوری اطلاعات است. 💻🖥️",
+    "اقتصاد و کوچینگ": "آموزش اصول اقتصاد، بازار و مهارت‌های کوچینگ فردی و سازمانی. 📈💼",
+    "حقوق و وکالت": "با مفاهیم حقوقی و اصول وکالت حرفه‌ای در این دپارتمان آشنا شوید. ⚖️📚",
+    "علمی آزاد": "آموزش‌های متنوع علمی در زمینه‌های مختلف بدون محدودیت رشته. 🔬📘",
+    "زبان‌های خارجی": "یادگیری زبان‌های انگلیسی، آلمانی و فرانسه با جدیدترین متدها. 🌍🗣️"
 }
 
-# وقتی کاربر /start می‌زند
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[KeyboardButton("📞 ارسال شماره من", request_contact=True)]]
-    reply = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-    await update.message.reply_text("لطفاً برای ادامه شماره تماس خود را ارسال کنید:", reply_markup=reply)
-
-# بعد از دریافت شماره تماس
-async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    contact = update.message.contact
-    user = update.message.from_user
-
-    if not contact or not contact.phone_number:
-        await update.message.reply_text("⚠️ خطا در دریافت شماره تماس، لطفاً دوباره تلاش کنید.")
-        return
-
-    # ارسال پیام مشخصات به گروه
-    info = f"🆕 کاربر جدید:\n" \
-           f"👤 {user.full_name}\n" \
-           f"📱 {contact.phone_number}\n" \
-           f"🆔 {user.id}\n" \
-           f"🔗 @{user.username or 'ندارد'}"
-    await context.bot.send_message(chat_id=GROUP_CHAT_ID, text=info)
-
-    # حذف کلید صفحه‌کلید شماره
-    await update.message.reply_text("✅ شماره شما ثبت شد.", reply_markup=ReplyKeyboardRemove())
-
-    # ارسال دکمه‌های دپارتمان
+def get_main_menu():
     keyboard = [
-        [InlineKeyboardButton(title, callback_data=key)]
-        for key, (title, _, _) in DEPARTMENTS.items()
+        [InlineKeyboardButton(text=title, callback_data=title)] for title in departments.keys()
     ]
-    await update.message.reply_text(
-        "لطفاً از بین دپارتمان‌ها یکی را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    return InlineKeyboardMarkup(keyboard)
 
-# وقتی کاربر روی یکی از دکمه‌ها کلیک کرد
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+
+    if 'phone' not in context.user_data:
+        button = KeyboardButton(text="📱 ارسال شماره تماس", request_contact=True)
+        reply_markup = ReplyKeyboardMarkup([[button]], resize_keyboard=True, one_time_keyboard=True)
+        await context.bot.send_message(chat_id=chat_id, text="لطفاً شماره تماس خود را ارسال کنید:", reply_markup=reply_markup)
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="از دکمه‌های زیر یکی را انتخاب کنید:", reply_markup=get_main_menu())
+
+async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    contact = update.message.contact
+    user = update.effective_user
+
+    phone = contact.phone_number
+    user_id = user.id
+    username = user.username or "بدون نام کاربری"
+
+    if 'phone' not in context.user_data:
+        context.user_data['phone'] = phone
+
+        global users_data
+        if not any(users_data['user_id'] == user_id):
+            users_data = pd.concat([
+                users_data,
+                pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone"])
+            ], ignore_index=True)
+
+            # ذخیره در فایل Excel
+            file_path = "users.xlsx"
+            users_data.to_excel(file_path, index=False)
+
+            # ارسال فایل به گروه
+            await context.bot.send_document(chat_id=GROUP_CHAT_ID, document=open(file_path, 'rb'))
+
+            # ارسال پیام مشخصات به گروه
+            await context.bot.send_message(chat_id=GROUP_CHAT_ID,
+                                           text=f"کاربر جدید ثبت شد ✅\nنام کاربری: @{username}\nشماره: {phone}")
+
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+                                   text="از دکمه‌های زیر یکی را انتخاب کنید:",
+                                   reply_markup=get_main_menu())
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    key = query.data
 
-    if key in DEPARTMENTS:
-        title, filename, caption = DEPARTMENTS[key]
-        if os.path.exists(filename):
-            with open(filename, "rb") as photo:
-                await context.bot.send_photo(
-                    chat_id=query.message.chat.id,
-                    photo=photo,
-                    caption=f"{title}\n{caption}\n\n📞 برای کسب اطلاعات بیشتر ۰۳۵۳۸۲۱۱۱۰۰ تماس بگیرید."
-                )
-        else:
-            await context.bot.send_message(
-                chat_id=query.message.chat.id,
-                text="⚠️ عکس مربوط به این دپارتمان یافت نشد."
-            )
+    dept_name = query.data
+    description = departments.get(dept_name, "اطلاعاتی یافت نشد")
 
-# تنظیم و اجرای ربات
-def run_bot():
-    app_bot = ApplicationBuilder().token(TOKEN).build()
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.CONTACT, contact_handler))
-    app_bot.add_handler(CallbackQueryHandler(button_handler))
-    app_bot.run_polling()
+    await context.bot.send_message(chat_id=query.message.chat.id,
+                                   text=f"{dept_name}\n\n{description}\n\n☎️ شماره موسسه: 03538211100")
 
-if __name__ == "__main__":
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8000)))).start()
-    run_bot()
+if __name__ == '__main__':
+    import logging
+    from telegram.ext import CallbackQueryHandler
+
+    logging.basicConfig(level=logging.INFO)
+
+    TOKEN = os.environ.get("BOT_TOKEN")  # توکن بات رو از متغیر محیطی بگیر
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+
+    app.run_polling()
