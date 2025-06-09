@@ -1,16 +1,18 @@
 import os
+import threading
 import pandas as pd
-from flask import Flask, request
+from flask import Flask
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
+# تنظیمات اولیه
 ADMINS = [6441736006]
 GROUP_CHAT_ID = -1002737227310
 users_data = pd.DataFrame(columns=["user_id", "username", "phone"])
+TOKEN = os.environ.get("BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 8000))  # پیش‌فرض برای لوکال
 
-app = Flask(__name__)
-
-# دپارتمان‌ها
+# دیتای دپارتمان‌ها
 departments = {
     "هنر و رسانه": {
         "description": "در این دپارتمان با تکنیک‌های هنری و رسانه‌ای آشنا خواهید شد. 📸🎨",
@@ -48,10 +50,9 @@ def get_main_menu():
     keyboard = [[InlineKeyboardButton(text=title, callback_data=title)] for title in departments.keys()]
     return InlineKeyboardMarkup(keyboard)
 
+# هندلر استارت
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     chat_id = update.effective_chat.id
-
     if 'phone' not in context.user_data:
         button = KeyboardButton(text="📱 ارسال شماره تماس", request_contact=True)
         reply_markup = ReplyKeyboardMarkup([[button]], resize_keyboard=True, one_time_keyboard=True)
@@ -59,10 +60,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await context.bot.send_message(chat_id=chat_id, text="از دکمه‌های زیر یکی را انتخاب کنید:", reply_markup=get_main_menu())
 
+# هندلر کانتکت
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.contact
     user = update.effective_user
-
     phone = contact.phone_number
     user_id = user.id
     username = user.username or "بدون نام کاربری"
@@ -74,7 +75,6 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not any(users_data['user_id'] == user_id):
             new_row = pd.DataFrame([[user_id, username, phone]], columns=["user_id", "username", "phone"])
             users_data = pd.concat([users_data, new_row], ignore_index=True)
-
             file_path = "users.xlsx"
             users_data.to_excel(file_path, index=False)
 
@@ -83,6 +83,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(chat_id=update.effective_chat.id, text="از دکمه‌های زیر یکی را انتخاب کنید:", reply_markup=get_main_menu())
 
+# هندلر دکمه‌ها
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -106,31 +107,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await context.bot.send_message(chat_id=query.message.chat.id, text="دپارتمان پیدا نشد ❌")
 
-@app.route(f"/{os.environ.get('BOT_TOKEN')}", methods=["POST"])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), app_telegram.bot)
-    await app_telegram.process_update(update)
-    return "ok"
+# ربات تلگرام در ترد جداگانه
+def run_bot():
+    application = ApplicationBuilder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    application.run_polling()
 
-@app.route("/ping")
-def ping():
-    return "pong"
+# اجرای Flask
+app = Flask(__name__)
 
-if __name__ == '__main__':
-    from telegram.ext import Application
-    import logging
-    logging.basicConfig(level=logging.INFO)
+@app.route("/")
+def home():
+    return "ربات در حال اجراست ✅"
 
-    TOKEN = os.environ.get("BOT_TOKEN")
-    PORT = int(os.environ.get("PORT", 8443))
-    WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL")
-
-    app_telegram = ApplicationBuilder().token(TOKEN).build()
-    app_telegram.add_handler(CommandHandler("start", start))
-    app_telegram.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app_telegram.add_handler(CallbackQueryHandler(handle_callback))
-
-    if WEBHOOK_URL:
-        app_telegram.bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
-
+# اجرای هم‌زمان
+if __name__ == "__main__":
+    threading.Thread(target=run_bot).start()
     app.run(host="0.0.0.0", port=PORT)
