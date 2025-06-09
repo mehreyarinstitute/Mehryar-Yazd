@@ -7,16 +7,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("اطلاعاتی یافت نشد.")
         return
 
-    # مسیر فایل عکس
-    image_path = dept_data["image"]
+    image_path = dept_data["image"]  # نام فایل عکس مثلاً: art_media.jpg
     description = dept_data["description"]
     phone = dept_data["phone"]
 
     caption = f"{query.data}\n\n{description}\n\n☎️ شماره موسسه: {phone}"
 
-    # ارسال عکس همراه با توضیح
     try:
-        with open(image_path, "rb") as img:
-            await context.bot.send_photo(chat_id=query.message.chat.id, photo=img, caption=caption)
+        with open(image_path, "rb") as photo_file:
+            await context.bot.send_photo(
+                chat_id=query.message.chat.id,
+                photo=photo_file,
+                caption=caption
+            )
     except FileNotFoundError:
-        await query.message.reply_text(f"❌ فایل عکس {image_path} یافت نشد.")
+        await query.message.reply_text(f"❌ عکس مربوط به این دپارتمان پیدا نشد: {image_path}")
