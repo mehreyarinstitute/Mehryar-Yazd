@@ -1,12 +1,16 @@
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
-import pandas as pd
 import os
+import pandas as pd
+from flask import Flask, request
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 ADMINS = [6441736006]
 GROUP_CHAT_ID = -1002737227310
 users_data = pd.DataFrame(columns=["user_id", "username", "phone"])
 
+app = Flask(__name__)
+
+# دپارتمان‌ها
 departments = {
     "هنر و رسانه": {
         "description": "در این دپارتمان با تکنیک‌های هنری و رسانه‌ای آشنا خواهید شد. 📸🎨",
@@ -102,17 +106,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await context.bot.send_message(chat_id=query.message.chat.id, text="دپارتمان پیدا نشد ❌")
 
+@app.route(f"/{os.environ.get('BOT_TOKEN')}", methods=["POST"])
+async def webhook():
+    update = Update.de_json(request.get_json(force=True), app_telegram.bot)
+    await app_telegram.process_update(update)
+    return "ok"
+
+@app.route("/ping")
+def ping():
+    return "pong"
+
 if __name__ == '__main__':
+    from telegram.ext import Application
     import logging
     logging.basicConfig(level=logging.INFO)
 
     TOKEN = os.environ.get("BOT_TOKEN")
-    PORT = int(os.environ.get("PORT", 8443))  # مقدار پیش‌فرض برای اجرای محلی
+    PORT = int(os.environ.get("PORT", 8443))
+    WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    app_telegram = ApplicationBuilder().token(TOKEN).build()
+    app_telegram.add_handler(CommandHandler("start", start))
+    app_telegram.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app_telegram.add_handler(CallbackQueryHandler(handle_callback))
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    if WEBHOOK_URL:
+        app_telegram.bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
 
-    app.run_polling()
+    app.run(host="0.0.0.0", port=PORT)
