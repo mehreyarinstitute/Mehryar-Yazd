@@ -3,15 +3,16 @@ import pandas as pd
 from flask import Flask, request
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
-import asyncio
 
-# تنظیمات
+# متغیرهای محیطی
+TOKEN = os.environ.get("BOT_TOKEN")
+URL = os.environ.get("RENDER_EXTERNAL_URL")  # آدرس اصلی پروژه در Render
+PORT = int(os.environ.get("PORT", 8000))
+
+# اطلاعات پایه
 ADMINS = [6441736006]
 GROUP_CHAT_ID = -1002737227310
 users_data = pd.DataFrame(columns=["user_id", "username", "phone"])
-
-TOKEN = os.environ.get("BOT_TOKEN")
-URL = f"https://mehryar-yazd.onrender.com/{TOKEN}"  # آدرس وب‌هوک
 
 departments = {
     "هنر و رسانه": {
@@ -86,37 +87,44 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     dept_name = query.data
     dept_info = departments.get(dept_name)
+
     if dept_info:
         description = dept_info["description"]
         image_path = dept_info["image"]
         phone = dept_info["phone"]
+
         if os.path.exists(image_path):
             with open(image_path, 'rb') as img:
                 await context.bot.send_photo(chat_id=query.message.chat.id, photo=img)
-        await context.bot.send_message(chat_id=query.message.chat.id, text=f"{dept_name}\n\n{description}\n\n☎️ شماره موسسه: {phone}")
+
+        await context.bot.send_message(
+            chat_id=query.message.chat.id,
+            text=f"{dept_name}\n\n{description}\n\n☎️ شماره موسسه: {phone}"
+        )
     else:
         await context.bot.send_message(chat_id=query.message.chat.id, text="دپارتمان پیدا نشد ❌")
 
-# برنامه Flask
-flask_app = Flask(__name__)
+# Flask app
+app = Flask(__name__)
 telegram_app = Application.builder().token(TOKEN).build()
 
-@flask_app.route("/")
-def index():
-    return "ربات فعال است ✅"
+@app.route('/')
+def home():
+    return "ربات تلگرام در حال اجراست ✅"
 
-@flask_app.route(f"/{TOKEN}", methods=["POST"])
-async def webhook():
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
     update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    await telegram_app.process_update(update)
-    return "ok"
+    telegram_app.update_queue.put_nowait(update)
+    return 'ok'
 
-# افزودن هندلرها
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-telegram_app.add_handler(CallbackQueryHandler(handle_callback))
+def setup():
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    telegram_app.add_handler(CallbackQueryHandler(handle_callback))
+
+    telegram_app.bot.set_webhook(f"{URL}/{TOKEN}")
 
 if __name__ == "__main__":
-    # ست کردن وب‌هوک
-    asyncio.get_event_loop().run_until_complete(telegram_app.bot.set_webhook(URL))
-    flask_app.run(host="0.0.0.0", port=PORT)
+    setup()
+    app.run(host="0.0.0.0", port=PORT)
